@@ -95,5 +95,23 @@ router.put("/", isAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+router.delete("/:url", isAdmin, async (req, res) => {
+  try {
+    const songUrl = decodeURIComponent(req.params.url);
+    const songs = await getJsonFromS3(process.env.S3_BUCKET_NAME, "songs.json");
 
+    const songIndex = songs.findIndex(s => s.url === songUrl);
+    if (songIndex === -1)
+      return res.status(404).json({ error: "Song not found" });
+
+    await deleteMediaFromS3(process.env.S3_BUCKET_NAME, songUrl);
+
+    songs.splice(songIndex, 1);
+    await putJsonToS3(process.env.S3_BUCKET_NAME, "songs.json", songs);
+
+    res.status(200).json({ message: "Song deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 export default router;
