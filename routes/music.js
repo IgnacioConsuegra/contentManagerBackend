@@ -4,6 +4,7 @@ import {
   getJsonFromS3,
   putJsonToS3,
   uploadMediaToS3,
+  deleteMediaFromS3,
 } from "../services/s3Service.js";
 import { isAdmin } from "../middleware/authMiddleware.js";
 
@@ -98,20 +99,47 @@ router.put("/", isAdmin, async (req, res) => {
 router.delete("/:url", isAdmin, async (req, res) => {
   try {
     const songUrl = decodeURIComponent(req.params.url);
-    const songs = await getJsonFromS3(process.env.S3_BUCKET_NAME, "songs.json");
+
+    let songs;
+    try {
+      songs = await getJsonFromS3(process.env.S3_BUCKET_NAME, "songs.json");
+    } catch (error) {
+      console.error("Error fetching songs.json:", error);
+      return res.status(500).json({ error: "Error accessing song database" });
+    }
 
     const songIndex = songs.findIndex(s => s.url === songUrl);
-    if (songIndex === -1)
-      return res.status(404).json({ error: "Song not found" });
 
-    await deleteMediaFromS3(process.env.S3_BUCKET_NAME, songUrl);
+    if (songIndex === -1) {
+      return res.status(404).json({ error: "Song not found in records" });
+    }
+
+    try {
+      await deleteMediaFromS3(process.env.S3_BUCKET_NAME, songUrl);
+    } catch (mediaError) {
+      console.error(`Error deleting media file ${songUrl}:`, mediaError);
+      return res
+        .status(500)
+        .json({ error: "Problem deleting audio file from S3" });
+    }
 
     songs.splice(songIndex, 1);
-    await putJsonToS3(process.env.S3_BUCKET_NAME, "songs.json", songs);
 
-    res.status(200).json({ message: "Song deleted successfully" });
+    try {
+      await putJsonToS3(process.env.S3_BUCKET_NAME, "songs.json", songs);
+    } catch (jsonError) {
+      console.error("Error saving updated songs.json:", jsonError);
+      return res
+        .status(500)
+        .json({ error: "Audio deleted, but failed to update registry" });
+    }
+
+    res
+      .status(200)
+      .json({ message: "Song successfully deleted from storage and registry" });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Critical error in DELETE /music route:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 export default router;
